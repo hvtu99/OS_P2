@@ -111,7 +111,8 @@ static int __init init_hook(void){
 		printk(KERN_ERR "HooK not found syscall table\n");
 		return -1;
 	}
-
+	
+	// Backup 
 	original_sys_open = (void *)sys_call_table_addr[__NR_open];
 	original_sys_write = (void *)sys_call_table_addr[__NR_write];
 
