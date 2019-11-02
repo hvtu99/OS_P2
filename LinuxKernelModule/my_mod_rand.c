@@ -1,26 +1,21 @@
-#include <linux/module.h>  //for macro such as module_init and module_exit
-#include <linux/version.h>
+#include <linux/module.h>  
 #include <linux/kernel.h>
-#include <linux/types.h>
-#include <linux/kdev_t.h>
-#include <linux/fs.h>	   //for file_operations struct
-#include <linux/random.h>  //for get_random_bytes
 #include <linux/device.h>
 #include <linux/init.h>
+#include <linux/fs.h>	   //for file_operations struct
+#include <linux/random.h>  //for get_random_bytes
+#include <linux/slab.h>	   //for kmalloc/kfree functions
 #include <linux/uaccess.h> //for copy_to_user
-#include <linux/mutex.h>
-#include <linux/slab.h>
+
 
 //Define 
-#define DRIVER_AUTHOR "HuynhVanTu <huynhtu9910@gmail.com>"
-#define DRIVER_DESC "Module create random number"
+#define DRIVER_AUTHOR "Huynh Van Tu - Nguyen Xuan Vy"
+#define DRIVER_DESC "Module generator random number"
 
 #define DEVICE_NAME "my_rand"
 #define CLASS_NAME "my_class"
 
-//Function 
-static int my_rand_init(void) __init;
-static void my_rand_exit(void) __exit;
+//The prototype functions 
 static int my_rand_open(struct inode *, struct file *);
 static int my_rand_release(struct inode *, struct file *);
 static ssize_t my_rand_read(struct file *, char *, size_t, loff_t *);
@@ -91,7 +86,7 @@ static void __exit my_rand_exit(void)
 static int my_rand_open(struct inode *inodep, struct file *filep)
 {
 	device_open++;
-	printk(KERN_INFO "Device has been opened %d time \n", device_open);
+	printk(KERN_INFO "Device has been opened %d time(s) \n", device_open);
 	return 0;
 }	
 
@@ -99,7 +94,7 @@ static int my_rand_open(struct inode *inodep, struct file *filep)
 static int my_rand_release(struct inode *inodep, struct file *filep)
 {
 	device_open--;
-	printk(KERN_INFO "Device is released");
+	printk(KERN_INFO "Device is released\n");
 	return 0;
 }
 
@@ -109,7 +104,7 @@ static ssize_t my_rand_read(struct file *filep, char *buffer, size_t len, loff_t
 	char *arr = kmalloc(len, GFP_KERNEL);
 	
 	get_random_bytes(arr, len);
-
+	
 	status = copy_to_user(buffer, arr, len);
 	kfree(arr);
 

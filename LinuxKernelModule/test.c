@@ -25,7 +25,7 @@ int main(void)
 	}
 
 	printf("Random number: %d\n", my_num);
-	printf("Finish!");
+	printf("Finish!\n");
 
 	return 0;
 }

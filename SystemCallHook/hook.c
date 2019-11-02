@@ -1,18 +1,23 @@
 
 #include <asm/unistd.h>
 #include <asm/cacheflush.h>
+#include <asm/pgtable_types.h>
+#include <asm/cacheflush.h>
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/syscalls.h>
-#include <asm/pgtable_types.h>
 #include <linux/highmem.h>
 #include <linux/fs.h>
 #include <linux/sched.h>
 #include <linux/moduleparam.h>
 #include <linux/unistd.h>
-#include <asm/cacheflush.h>
 #include <linux/fcntl.h>
+#include <linux/fdtable.h>
+#include <linux/slab.h>
+#include <linux/kallsyms.h>
+
+
 
 
 MODULE_LICENSE("GPL");
@@ -20,9 +25,9 @@ MODULE_AUTHOR("Huynh Van Tu - Nguyen Xuan Vy");
 MODULE_DESCRIPTION("Hook system call open and write");
 
 
+#define ENABLE_WRITE write_cr0(read_cr0() & (~0x10000))
+#define DISABLE_WRITE write_cr0(read_cr0() | 0x10000)
 
-#define GPF_DISABLE write_cr0(read_cr0() & (~ 0x10000))
-#define GPF_ENABLE write_cr0(read_cr0() | 0x10000)
 
 /*Make page writeable*/
 int make_rw(unsigned long address){
@@ -33,6 +38,7 @@ int make_rw(unsigned long address){
     }
     return 0;
 }
+
 /* Make the page write protected */
 int make_ro(unsigned long address){
     unsigned int level;
@@ -42,91 +48,96 @@ int make_ro(unsigned long address){
 }
 
 
-
-
-unsigned long **sys_call_table;
+unsigned long **sys_call_table_addr;
 
 asmlinkage int (*original_sys_open)(const char __user *, int, mode_t);
-asmlinkage size_t (*original_sys_write)(unsigned int, const char __user *, size_t);
+asmlinkage int (*original_sys_write)(unsigned int, const char __user *, size_t);
 
 
 /*hook*/
 asmlinkage int new_sys_open(const char __user *pathname, int flags, mode_t mode)
 {
-	printk(KERN_INFO "HOOK open syscall\n");
+	printk(KERN_INFO "HooK open syscall\n");
 	printk(KERN_INFO "Process name: %s\n", current->comm);
 	printk(KERN_INFO "File name: %s\n", pathname);
 
 	return (*original_sys_open)(pathname, flags, mode);
 }
 
-asmlinkage size_t new_sys_write(unsigned int fd, const char __user *buf, size_t count)
+asmlinkage int new_sys_write(unsigned int fd, const char __user *buf, size_t count)
 {
-	size_t bytes_write;
+	int bytes_write;
+	char *buffer   = kmalloc(1024, GFP_KERNEL);
+	char *pathname   = d_path(&fcheck_files(current->files, fd)->f_path, buffer, 1024);
 
-	printk(KERN_INFO "HOOK write syscall\n");
+	printk(KERN_INFO "HooK write syscall\n");
 	printk(KERN_INFO "Process name: %s\n", current->comm);
-
+	printk(KERN_INFO "File name: %s\n", pathname);	
 	bytes_write = (*original_sys_write)(fd, buf, count);
 	printk(KERN_INFO "Bytes write: %d\n, ", bytes_write);
-
+	
+	kfree(buffer);
 	return bytes_write;
 }
 
 
 
-
-static void get_syscall_table(void)
+/*
+static void get_sys_call_table_addr(void)
 {
 	unsigned long int offset = PAGE_OFFSET;
 
 	while (offset < ULLONG_MAX) {
-		unsigned long **temp_sys_call_table = (unsigned long **)offset;
+		unsigned long **temp_sys_call_table_addr = (unsigned long **)offset;
 		
-		if (temp_sys_call_table[__NR_close] ==
-		    (unsigned long *)sys_close) {
-			sys_call_table = temp_sys_call_table;
+		if (temp_sys_call_table_addr[__NR_close] ==
+		    (unsigned long *)ksys_close) {
+			sys_call_table_addr = temp_sys_call_table_addr;
 			return;
 		}
 
 		offset += sizeof(void *);
 	}
-	syscall_table = NULL;
+	sys_call_table_addr = NULL;
 }
-
+*/
 
 static int __init init_hook(void){
-    	printk(KERN_INFO "Captain Hook loaded successfully..\n");
-   	get_syscall_table();
+    	printk(KERN_INFO "Hook loaded successfully..\n");
+   	sys_call_table_addr = (unsigned long **) kallsyms_lookup_name("sys_call_table");
+	//get_sys_call_table_addr();
 
-	if (syscall_table == NULL) {
-		printk(KERN_ERR "HOOK not found syscall table\n");
+	if (sys_call_table_addr == NULL) {
+		printk(KERN_ERR "HooK not found syscall table\n");
 		return -1;
 	}
 
-	original_sys_open = (void *)sys_call_table[__NR_open];
-	original_sys_write = (void *)sys_call_table[__NR_write];
+	original_sys_open = (void *)sys_call_table_addr[__NR_open];
+	original_sys_write = (void *)sys_call_table_addr[__NR_write];
 
-	//GPF_ENABLE();
-	make_rw(sys_tem_table);
+	//ENABLE_WRITE;
+	make_rw((unsigned long)sys_call_table_addr);
 
-	sys_call_table[__NR_open] = (unsigned long *)new_sys_open;
-	sys_call_table[__NR_write] = (unsigned long *)new_sys_write;
-
-	//GPF_DISABLE();
+	sys_call_table_addr[__NR_open] = (unsigned long *)new_sys_open;
+	sys_call_table_addr[__NR_write] = (unsigned long *)new_sys_write;
+	
+	//DISABLE_WRITE;
+	make_ro((unsigned long)sys_call_table_addr);
 	return 0;
 }
 
 static void __exit exit_hook(void){
-    	printk(KERN_INFO "Unloaded Captain Hook successfully\n");
+    	printk(KERN_INFO "Unloaded Hook successfully\n");
     
-    	if (sys_call_table != NULL) {
-		//GPF_ENABLE;		
-
-		sys_call_table[__NR_open] = (unsigned long *)original_sys_open;
-		sys_call_table[__NR_write] = (unsigned long *)original_sys_write;
-		make_ro(sys_tem_table);
-		//GPF_DISABLE;
+    	if (sys_call_table_addr != NULL) {
+		//ENABLE_WRITE;	
+		make_rw((unsigned long)sys_call_table_addr);
+		
+		sys_call_table_addr[__NR_open] = (unsigned long *)original_sys_open;
+		sys_call_table_addr[__NR_write] = (unsigned long *)original_sys_write;
+		
+		//DISABLE_WRITE;
+		make_ro((unsigned long)sys_call_table_addr);
 	}
 
 }
